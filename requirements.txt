@@ -1,6 +1,6 @@
-python-telegram-bot==20.0
-aiohttp
-beautifulsoup4
-Flask
-gunicorn
-nest_asyncio
+Flask==2.3.2
+requests==2.31.0
+python-telegram-bot==20.3
+aiohttp==3.8.5
+beautifulsoup4==4.12.2
+nest_asyncio==1.6.0
