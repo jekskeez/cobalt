@@ -425,14 +425,13 @@ def webapp_root():
     return redirect("/proxy/welcome")
 
 # Flask маршрут: прокси для запросов к mpets.mobi (логин через WebApp)
-@app.route('/proxy/<path:url_path>', methods=['GET', 'POST'])
+@app.route('/', defaults={'url_path': ''}, methods=['GET', 'POST'])
+@app.route('/<path:url_path>', methods=['GET', 'POST'])
 def proxy_mpets(url_path):
     target_url = f"https://mpets.mobi/{url_path}"
     method = request.method
-    # Копируем заголовки запроса, исключая Host (будем использовать наш)
     headers = {key: value for key, value in request.headers if key.lower() != 'host'}
-    cookies = request.cookies  # куки, сохраненные в веб-приложении (сессионные куки MPets через наш домен)
-    # Выполняем соответствующий запрос к целевому сайту
+    cookies = request.cookies
     try:
         if method == 'POST':
             resp = requests.post(target_url, data=request.form, headers=headers, cookies=cookies, allow_redirects=False)
@@ -441,14 +440,13 @@ def proxy_mpets(url_path):
     except Exception as e:
         logging.error(f"Ошибка прокси-запроса к {target_url}: {e}")
         return "Ошибка соединения с MPets.", 502
-    # Перехват успешного входа: запрос /login возвращает редирект
+
     if url_path.lower() == "login" and resp.status_code in (301, 302):
         tgid = flask_session.get("tgid")
         session_name = flask_session.get("session_name")
         if tgid and session_name:
             pending_cookies[(tgid, session_name)] = resp.cookies.get_dict()
             logging.info(f"Получены куки для user_id={tgid}, session='{session_name}'. Ожидается подтверждение /confirm.")
-        # Возвращаем пользователю страницу с сообщением об успехе
         return (
             "<html><body style='text-align:center; font-family:Arial,sans-serif;'>"
             "<h2>✅ Авторизация успешна!</h2>"
@@ -457,7 +455,7 @@ def proxy_mpets(url_path):
             "<button onclick=\"window.close()\" style='padding:10px 20px; font-size:16px; cursor:pointer;'>Закрыть</button>"
             "</body></html>"
         )
-    # Формируем ответ, проксирующий содержимое и заголовки от MPets
+
     excluded_headers = ['content-encoding', 'transfer-encoding', 'content-length', 'connection']
     response = Response(resp.content, status=resp.status_code)
     for header, value in resp.headers.items():
