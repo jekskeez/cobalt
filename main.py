@@ -11,7 +11,7 @@ from flask import Flask, request, Response, redirect, session as flask_session
 import requests
 
 # Токен Telegram-бота
-TOKEN = "7690678050:AAGBwTdSUNgE7Q6Z2LpE6481vvJJhetrO-4"
+TOKEN = "7775307986:AAG_Tr9W_NKqBZAdOtMS0N1LT6jwUpTPBtM"
 
 # Путь к файлу для хранения сессий
 USERS_FILE = "users.txt"
