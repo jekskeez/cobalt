@@ -1,92 +1,119 @@
+
 import asyncio
 import logging
-import os
 import json
+import os
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackContext
-from aiohttp import web, ClientSession, CookieJar
-from bs4 import BeautifulSoup
+from aiohttp import ClientSession, CookieJar
+from flask import Flask, request, redirect, Response, session as flask_session
+import threading
+import requests
 
-from main3 import *  # импортируем всю логику Telegram-бота
+# Telegram bot token
+TOKEN = os.getenv("BOT_TOKEN", "your_token_here")
 
-PORT = int(os.environ.get("PORT", 8080))
+# Allowed users
+ALLOWED_USER_IDS = [1811568463, 630965641]
 
-# HTML форма логина
-LOGIN_PAGE = """
-<html>
-  <head><title>Авторизация Cobalt</title></head>
-  <body>
-    <h2>Вход в mpets.mobi</h2>
-    <form action="/login" method="post">
-      <label>Имя: <input name="name" type="text" /></label><br />
-      <label>Пароль: <input name="password" type="password" /></label><br />
-      <label>Captcha: <input name="captcha" type="text" /></label><br />
-      <input type="submit" value="Войти" />
-    </form>
-  </body>
-</html>
-"""
+# File paths
+USERS_FILE = "users.txt"
 
-# Хендлер формы логина
-async def handle_welcome(request):
-    return web.Response(text=LOGIN_PAGE, content_type='text/html')
+# Global state
+user_sessions = {}
+user_tasks = {}
+flask_sessions = {}
 
-# Авторизация и экспорт куки
-async def handle_login(request):
-    data = await request.post()
-    payload = {
-        "name": data.get("name"),
-        "password": data.get("password"),
-        "captcha": data.get("captcha")
-    }
+# Logging
+logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 
+# Telegram bot setup
+async def start(update: Update, context: CallbackContext):
+    await update.message.reply_text("Привет! Зайди в мини-приложение и авторизуйся через mpets.mobi. Потом вернись и введи /confirm чтобы сохранить куки.")
+
+async def confirm(update: Update, context: CallbackContext):
+    user_id = update.message.from_user.id
+    if user_id in flask_sessions:
+        cookies = flask_sessions[user_id]
+        user_sessions[user_id] = {"mpets": {"owner": update.message.from_user.username, "cookies": cookies, "active": False}}
+        await update.message.reply_text("Куки сохранены и сессия добавлена.")
+    else:
+        await update.message.reply_text("Куки не найдены. Зайдите в миниапп и авторизуйтесь.")
+
+# Авто-действия
+async def auto_actions(session_data, session_name):
+    actions = [
+        "https://mpets.mobi/?action=food",
+        "https://mpets.mobi/?action=play",
+        "https://mpets.mobi/show",
+        "https://mpets.mobi/glade_dig",
+        "https://mpets.mobi/show_coin_get",
+        "https://mpets.mobi/task_reward?id=46",
+        "https://mpets.mobi/task_reward?id=49",
+        "https://mpets.mobi/task_reward?id=52"
+    ]
+
+    cookies = session_data["cookies"] if isinstance(session_data, dict) else {}
     jar = CookieJar()
+    jar.update_cookies(cookies)
     async with ClientSession(cookie_jar=jar) as session:
-        async with session.post("https://mpets.mobi/login", data=payload) as resp:
-            if str(resp.url) == "https://mpets.mobi/":
-                cookies = [
-                    {'name': c.key, 'value': c.value}
-                    for c in jar.filter_cookies("https://mpets.mobi/").values()
-                ]
-                return web.Response(text=f"<h3>Авторизация успешна!</h3><pre>{json.dumps(cookies, indent=2, ensure_ascii=False)}</pre>", content_type="text/html")
-            else:
-                return web.Response(text="Ошибка авторизации. Проверь данные и капчу.", content_type="text/html")
+        while True:
+            if asyncio.current_task().cancelled():
+                return
+            for action in actions[:4]:
+                for _ in range(6):
+                    await session.get(action)
+                    await asyncio.sleep(1)
+            for action in actions[4:]:
+                await session.get(action)
+                await asyncio.sleep(1)
+            for i in range(10, 0, -1):
+                await session.get(f"https://mpets.mobi/go_travel?id={i}")
+                await asyncio.sleep(1)
+            await asyncio.sleep(60)
 
-# Запуск aiohttp-сервера и Telegram-бота
-async def start_all():
-    load_sessions()
+# Flask web server for cookie interception
+app = Flask(__name__)
+app.secret_key = "secret"
 
-    app = Application.builder().token(TOKEN).build()
+@app.route('/')
+def index():
+    return redirect("https://mpets.mobi/welcome")
 
-    # Хендлеры бота
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("add", add_session))
-    app.add_handler(CommandHandler("del", remove_session))
-    app.add_handler(CommandHandler("list", list_sessions))
-    app.add_handler(CommandHandler("on", activate_session))
-    app.add_handler(CommandHandler("off", deactivate_session))
-    app.add_handler(CommandHandler("stats", stats))
-    app.add_handler(CommandHandler("get_user", get_user))
-    app.add_handler(CommandHandler("aon", activate_other_session))
-    app.add_handler(CommandHandler("aoff", deactivate_other_session))
-    app.add_handler(CommandHandler("get_list", get_user_sessions))
-    app.add_handler(CommandHandler("info", info))
-    app.add_handler(CommandHandler("guide", guide))
+@app.route('/proxy', methods=["GET", "POST"])
+def proxy():
+    target_url = "https://mpets.mobi" + request.full_path.replace("/proxy", "")
+    headers = {key: value for key, value in request.headers if key != 'Host'}
+    cookies = request.cookies
+    if request.method == "POST":
+        resp = requests.post(target_url, data=request.form, headers=headers, cookies=cookies, allow_redirects=False)
+    else:
+        resp = requests.get(target_url, headers=headers, cookies=cookies, allow_redirects=False)
 
-    async def run_bot():
-        await app.run_polling()
+    # Если авторизация прошла, сохраняем куки
+    if resp.status_code in [301, 302] and "mpets.mobi/" in resp.headers.get("Location", ""):
+        user_id = request.args.get("tgid")
+        if user_id:
+            flask_sessions[int(user_id)] = resp.cookies.get_dict()
 
-    async def run_web():
-        server = web.Application()
-        server.add_routes([web.get('/', handle_welcome), web.post('/login', handle_login)])
-        runner = web.AppRunner(server)
-        await runner.setup()
-        site = web.TCPSite(runner, '0.0.0.0', PORT)
-        await site.start()
+    response = Response(resp.content, status=resp.status_code)
+    for key, value in resp.headers.items():
+        if key.lower() not in ['content-encoding', 'transfer-encoding', 'content-length']:
+            response.headers[key] = value
+    return response
 
-    await asyncio.gather(run_bot(), run_web())
+def run_flask():
+    app.run(host="0.0.0.0", port=8080)
 
-if __name__ == '__main__':
+# Main runner
+async def main():
+    threading.Thread(target=run_flask).start()
+    application = Application.builder().token(TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("confirm", confirm))
+    await application.run_polling()
+
+if __name__ == "__main__":
     import nest_asyncio
     nest_asyncio.apply()
-    asyncio.run(start_all())
+    asyncio.run(main())
