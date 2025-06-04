@@ -3,7 +3,7 @@ import logging
 import json
 import os
 import threading
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import Application, CommandHandler, CallbackContext
 from aiohttp import ClientSession, CookieJar
 from bs4 import BeautifulSoup
@@ -126,7 +126,8 @@ async def add_session(update: Update, context: CallbackContext):
     tgid = user_id
     webapp_url = f"https://cobalt-t7qb.onrender.com/?tgid={tgid}&name={session_name}"
     # Кнопка для открытия мини-приложения
-    button = InlineKeyboardButton("🔑 Авторизоваться через MPets", url=webapp_url)
+    web_app_info = WebAppInfo(url=webapp_url)
+    button = InlineKeyboardButton("🔑 Авторизоваться через MPets", web_app=web_app_info)
     keyboard = InlineKeyboardMarkup([[button]])
     await update.message.reply_text(
         f"Для сессии *{session_name}* нажмите кнопку ниже и войдите в MPets:",
