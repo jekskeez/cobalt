@@ -8,7 +8,7 @@ from aiohttp import ClientSession, CookieJar
 from bs4 import BeautifulSoup
 
 # Установите ваш токен бота
-TOKEN = "7775307986:AAGuG3c9KgWy7KqXhi1woOxS_Uv_WVtxvFQ"
+TOKEN = os.environ.get("BOT_TOKEN")
 
 # Путь к файлу сессий
 USERS_FILE = "users.txt"
