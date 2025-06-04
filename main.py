@@ -422,7 +422,7 @@ def webapp_root():
         return "Некорректный идентификатор Telegram.", 400
     flask_session['session_name'] = session_name
     # Перенаправляем на прокси-страницу авторизации MPets
-    return redirect("/proxy/welcome")
+    return redirect("/welcome")
 
 # Flask маршрут: прокси для запросов к mpets.mobi (логин через WebApp)
 @app.route('/', defaults={'url_path': ''}, methods=['GET', 'POST'])
