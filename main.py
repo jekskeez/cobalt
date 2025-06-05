@@ -296,22 +296,28 @@ async def stats(update: Update, context: CallbackContext):
     if len(context.args) < 1:
         await update.message.reply_text("Использование: /stats <имя_сессии>")
         return
+
     session_name = context.args[0]
     user_id = update.message.from_user.id
+
     if user_id not in user_sessions or session_name not in user_sessions[user_id]:
         await update.message.reply_text(f"Сессия с именем {session_name} не найдена.")
         return
-    # Получаем куки для выбранной сессии
+
+    # Получаем куки
     cookies = user_sessions[user_id][session_name]["cookies"]
     cookies_dict = {cookie['name']: cookie['value'] for cookie in cookies} if isinstance(cookies, list) else cookies
-    # Создаём клиентскую сессию aiohttp и подставляем куки
+
+    # Создаём aiohttp-сессию и передаём в функцию
     async with ClientSession(cookie_jar=CookieJar()) as session:
         session.cookie_jar.update_cookies(cookies_dict)
-        stats_text = await fetch_pet_stats(cookies_dict)
+        stats_text = await fetch_pet_stats(session, update, context)
+
     if stats_text:
         await update.message.reply_text(stats_text)
     else:
         await update.message.reply_text(f"Не удалось получить статистику для сессии {session_name}.")
+
 
 # Вспомогательная функция для получения статистики питомца с сайта
 async def fetch_pet_stats(session: ClientSession, update: Update, context: CallbackContext):
