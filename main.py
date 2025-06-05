@@ -344,10 +344,11 @@ async def fetch_pet_stats(session: ClientSession, update: Update, context: Callb
 
                 await context.bot.send_document(
                     chat_id=update.effective_chat.id,
-                    document=InputFile(filename),
-                    filename=filename,
-                    caption="⚠️ Не удалось найти элементы статистики. Вот HTML-страница для анализа."
+                    document=InputFile(filename, filename="profile_debug.html"),
+                    caption="⚠️ Не удалось найти элементы статистики. Вот HTML-страница для анализа.",
+                    mime_type="text/html"
                 )
+
 
                 os.remove(filename)
                 return None
