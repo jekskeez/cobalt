@@ -318,32 +318,30 @@ async def fetch_pet_stats(cookies_dict):
     url = "https://mpets.mobi/profile"
     cookie_jar = CookieJar()
     cookie_jar.update_cookies(cookies_dict)
+
     async with ClientSession(cookie_jar=cookie_jar) as session:
         try:
             async with session.get(url) as response:
-                if response.status != 200:
-                    return f"Ошибка при загрузке профиля: {response.status}"
+                logging.info(f"[DEBUG] Response URL: {response.url}")
+                logging.info(f"[DEBUG] Response status: {response.status}")
                 page = await response.text()
+                logging.info("[DEBUG] Первые 1000 символов HTML:\n" + page[:1000])
         except Exception as e:
-            logging.error(f"Ошибка при получении статистики: {e}")
-            return None
+            logging.error(f"[ERROR] Ошибка при получении статистики: {e}")
+            return "Ошибка соединения."
+
     soup = BeautifulSoup(page, 'html.parser')
     stat_items = soup.find_all('div', class_='stat_item')
     if not stat_items:
-        with open("profile_debug.html", "w", encoding="utf-8") as f:
-            f.write(page)
-        return "Не удалось найти элементы статистики (проверь HTML-лог)."
-    # Извлекаем ключевую информацию о питомце
+        return "Не удалось найти элементы статистики. Возможно, вы не авторизованы."
+
     pet_name_tag = stat_items[0].find('a', class_='darkgreen_link')
     if not pet_name_tag:
         return "Не удалось определить имя питомца."
+
     pet_name = pet_name_tag.text.strip()
-    # Предполагается, что уровень – предпоследнее слово в первом элементе стат
     pet_level = stat_items[0].text.split()[-2] if stat_items[0].text else "N/A"
-    experience = "Не найдено"
-    beauty = "Не найдено"
-    coins = "Не найдено"
-    hearts = "Не найдено"
+    experience = beauty = coins = hearts = "Не найдено"
     for item in stat_items:
         text = item.text.strip()
         if 'Опыт:' in text:
@@ -354,13 +352,12 @@ async def fetch_pet_stats(cookies_dict):
             coins = text.split('Монеты:')[-1].strip()
         if 'Сердечки:' in text:
             hearts = text.split('Сердечки:')[-1].strip()
-    # Формируем текст статистики
-    stats_text = (f"*{pet_name}* — уровень {pet_level}\n"
-                  f"Опыт: {experience}\n"
-                  f"Красота: {beauty}\n"
-                  f"Монеты: {coins}\n"
-                  f"Сердечки: {hearts}")
-    return stats_text
+
+    return (f"*{pet_name}* — уровень {pet_level}\n"
+            f"Опыт: {experience}\n"
+            f"Красота: {beauty}\n"
+            f"Монеты: {coins}\n"
+            f"Сердечки: {hearts}")
 
 # Команда для получения информации о владельце сессии
 async def get_user(update: Update, context: CallbackContext):
