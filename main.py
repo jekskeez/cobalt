@@ -383,7 +383,7 @@ async def get_user(update: Update, context: CallbackContext):
 
             response += f"Куки:\n {hidden_cookies}"  # Добавляем цитату с куками
 
-            await send_message(update, response)
+            await update.message.reply_text(response, parse_mode='Markdown')
             return
 
     await update.message.reply_text(f"Сессия с именем {session_name} не найдена.")
@@ -552,7 +552,7 @@ async def main_bot():
     app_tg.add_handler(CommandHandler("list", list_sessions))
     app_tg.add_handler(CommandHandler("on", activate_session))
     app_tg.add_handler(CommandHandler("off", deactivate_session))
-    app_tg.add_handler(CommandHandler("stats", fetch_pet_stats))
+    app_tg.add_handler(CommandHandler("stats", stats))
     app_tg.add_handler(CommandHandler("get_user", get_user))
     # Специальные команды для разрешённых пользователей (если нужны)
     app_tg.add_handler(CommandHandler("aon", activate_session))   # возможно, объединяется с /on
