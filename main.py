@@ -489,6 +489,7 @@ def proxy_mpets(url_path):
     method = request.method
     headers = {key: value for key, value in request.headers if key.lower() != 'host'}
     cookies = request.cookies
+
     try:
         if method == 'POST':
             resp = requests.post(target_url, data=request.form, headers=headers, cookies=cookies, allow_redirects=False)
@@ -497,33 +498,63 @@ def proxy_mpets(url_path):
     except Exception as e:
         logging.error(f"Ошибка прокси-запроса к {target_url}: {e}")
         return "Ошибка соединения с MPets.", 502
+
     if url_path.lower() == "login" and resp.status_code in (301, 302):
         tgid = flask_session.get("tgid")
         session_name = flask_session.get("session_name")
         if tgid and session_name:
-            # Сохраняем полученные cookies сразу в сессии пользователя
             cookies_dict = resp.cookies.get_dict()
-            # Если у пользователя уже есть такая сессия, удаляем старую (перелогин)
+
+            # Save session in bot
             user_sessions.setdefault(tgid, {})
             if session_name in user_sessions[tgid]:
                 user_sessions[tgid].pop(session_name)
+
             user_sessions[tgid][session_name] = {
-                "owner": "",  # Имя владельца (username) может быть недоступно в этом контексте
+                "owner": "",  # Username could be added via callback later
                 "cookies": cookies_dict,
                 "active": False
             }
-            # Записываем новую сессию в файл
             write_to_file(session_name, "", tgid, cookies_dict)
-            logging.info(f"Автоматически сохранена новая сессия '{session_name}' для user_id={tgid}.")
-        # Возвращаем HTML-страницу успешной авторизации
-        return (
-            "<html><body style='text-align:center; font-family:Arial,sans-serif;'>"
-            "<h2>✅ Авторизация успешна!</h2>"
-            "<p>Сессия сохранена. Теперь вы можете закрыть это окно и вернуться в бот.<br>"
-            "Для активации сессии используйте команду <b>/on</b> в чате.</p>"
-            "<button onclick=\"window.close()\" style='padding:10px 20px; font-size:16px; cursor:pointer;'>Закрыть</button>"
-            "</body></html>"
+            logging.info(f"Автоматически сохранена сессия '{session_name}' для user_id={tgid}")
+
+        # Invalidate cookies to allow re-auth
+        response = Response(
+            """
+            <html xmlns=\"http://www.w3.org/1999/xhtml\"><head>
+            	<meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\">
+            	<meta name=\"viewport\" content=\"width=device-width; minimum-scale=1; maximum-scale=1\">
+            	<link rel=\"icon\" href=\"/view/image/avatar_icon.png\" type=\"image/png\">
+            	<link rel=\"stylesheet\" type=\"text/css\" href=\"/view/style/style.css?2.5699\">
+            	<title>Удивительные питомцы</title>
+            </head>
+            <body>
+            <div class=\"main\">
+            	<div class=\"ovh\" style=\"padding-top: 1px;\"></div>
+            	<div class=\"content\">
+            		<div class=\"start\">
+            		<div class=\"msg mrg_msg1 mt10 c_brown4\">
+            		<div class=\"wr_bg\"><div class=\"wr_c1\"><div class=\"wr_c2\"><div class=\"wr_c3\"><div class=\"wr_c4 font_14\">
+            					<span class=\"wbmenu\">
+            					<a href=\"https://t.me/cobaltMPETS_bot\">
+            						<img src=\"/view/image/avatar5.png\" height=\"150\" alt=\"Успех!\">
+            					</a>
+            				</span>
+            				<br>
+            			<div class=\"mb10\"> <br>✅ Авторизация успешна! Теперь вы можете закрыть это окно и вернуться в ботa. Сессия уже сохранена автоматически.</div>
+            		</div></div></div></div></div>
+            		</div>
+            	</div>
+            </div>
+            </body></html>
+            """,
+            mimetype="text/html"
         )
+
+        # Очищаем куки клиента (важно для возможности авторизовать другие сессии)
+        response.set_cookie("PHPSESSID", "", expires=0)
+        return response
+
     excluded_headers = ['content-encoding', 'transfer-encoding', 'content-length', 'connection']
     response = Response(resp.content, status=resp.status_code)
     for header, value in resp.headers.items():
