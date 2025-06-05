@@ -307,27 +307,32 @@ async def stats(update: Update, context: CallbackContext):
     # Создаём клиентскую сессию aiohttp и подставляем куки
     async with ClientSession(cookie_jar=CookieJar()) as session:
         session.cookie_jar.update_cookies(cookies_dict)
-        stats_text = await fetch_pet_stats(session)
+        stats_text = await fetch_pet_stats(cookies_dict)
     if stats_text:
         await update.message.reply_text(stats_text)
     else:
         await update.message.reply_text(f"Не удалось получить статистику для сессии {session_name}.")
 
 # Вспомогательная функция для получения статистики питомца с сайта
-async def fetch_pet_stats(session: ClientSession):
+async def fetch_pet_stats(cookies_dict):
     url = "https://mpets.mobi/profile"
-    try:
-        async with session.get(url) as response:
-            if response.status != 200:
-                return f"Ошибка при загрузке страницы профиля: {response.status}"
-            page = await response.text()
-    except Exception as e:
-        logging.error(f"Ошибка при запросе статистики: {e}")
-        return None
+    cookie_jar = CookieJar()
+    cookie_jar.update_cookies(cookies_dict)
+    async with ClientSession(cookie_jar=cookie_jar) as session:
+        try:
+            async with session.get(url) as response:
+                if response.status != 200:
+                    return f"Ошибка при загрузке профиля: {response.status}"
+                page = await response.text()
+        except Exception as e:
+            logging.error(f"Ошибка при получении статистики: {e}")
+            return None
     soup = BeautifulSoup(page, 'html.parser')
     stat_items = soup.find_all('div', class_='stat_item')
     if not stat_items:
-        return "Не удалось найти элементы статистики."
+        with open("profile_debug.html", "w", encoding="utf-8") as f:
+            f.write(page)
+        return "Не удалось найти элементы статистики (проверь HTML-лог)."
     # Извлекаем ключевую информацию о питомце
     pet_name_tag = stat_items[0].find('a', class_='darkgreen_link')
     if not pet_name_tag:
