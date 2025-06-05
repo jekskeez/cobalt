@@ -314,50 +314,72 @@ async def stats(update: Update, context: CallbackContext):
         await update.message.reply_text(f"Не удалось получить статистику для сессии {session_name}.")
 
 # Вспомогательная функция для получения статистики питомца с сайта
-async def fetch_pet_stats(cookies_dict):
+async def fetch_pet_stats(session: ClientSession, update: Update, context: CallbackContext):
+    import uuid
+    import os
+    from telegram import InputFile
+
     url = "https://mpets.mobi/profile"
-    cookie_jar = CookieJar()
-    cookie_jar.update_cookies(cookies_dict)
+    try:
+        async with session.get(url) as response:
+            if response.status != 200:
+                return f"Ошибка при загрузке страницы профиля: {response.status}"
 
-    async with ClientSession(cookie_jar=cookie_jar) as session:
-        try:
-            async with session.get(url) as response:
-                logging.info(f"[DEBUG] Response URL: {response.url}")
-                logging.info(f"[DEBUG] Response status: {response.status}")
-                page = await response.text()
-                logging.info("[DEBUG] Первые 1000 символов HTML:\n" + page[:1000])
-        except Exception as e:
-            logging.error(f"[ERROR] Ошибка при получении статистики: {e}")
-            return "Ошибка соединения."
+            page = await response.text()
+            soup = BeautifulSoup(page, 'html.parser')
 
-    soup = BeautifulSoup(page, 'html.parser')
-    stat_items = soup.find_all('div', class_='stat_item')
-    if not stat_items:
-        return "Не удалось найти элементы статистики. Возможно, вы не авторизованы."
+            stat_items = soup.find_all('div', class_='stat_item')
 
-    pet_name_tag = stat_items[0].find('a', class_='darkgreen_link')
-    if not pet_name_tag:
-        return "Не удалось определить имя питомца."
+            if not stat_items:
+                # сохраняем HTML и отправляем файл
+                filename = f"profile_debug_{uuid.uuid4().hex[:8]}.html"
+                with open(filename, "w", encoding="utf-8") as f:
+                    f.write(page)
 
-    pet_name = pet_name_tag.text.strip()
-    pet_level = stat_items[0].text.split()[-2] if stat_items[0].text else "N/A"
-    experience = beauty = coins = hearts = "Не найдено"
-    for item in stat_items:
-        text = item.text.strip()
-        if 'Опыт:' in text:
-            experience = text.split('Опыт:')[-1].strip()
-        if 'Красота:' in text:
-            beauty = text.split('Красота:')[-1].strip()
-        if 'Монеты:' in text:
-            coins = text.split('Монеты:')[-1].strip()
-        if 'Сердечки:' in text:
-            hearts = text.split('Сердечки:')[-1].strip()
+                await context.bot.send_document(
+                    chat_id=update.effective_chat.id,
+                    document=InputFile(filename),
+                    filename=filename,
+                    caption="⚠️ Не удалось найти элементы статистики. Вот HTML-страница для анализа."
+                )
 
-    return (f"*{pet_name}* — уровень {pet_level}\n"
-            f"Опыт: {experience}\n"
-            f"Красота: {beauty}\n"
-            f"Монеты: {coins}\n"
-            f"Сердечки: {hearts}")
+                os.remove(filename)
+                return None
+
+            pet_name = stat_items[0].find('a', class_='darkgreen_link')
+            if not pet_name:
+                return "Не удалось найти имя питомца."
+            pet_name = pet_name.text.strip()
+
+            pet_level = stat_items[0].text.split(' ')[-2]  # Уровень питомца
+
+            experience = beauty = coins = hearts = vip_status = "Не найдено"
+
+            for item in stat_items:
+                text = item.text.strip()
+                if 'Опыт:' in text:
+                    experience = text.split('Опыт:')[-1].strip()
+                if 'Красота:' in text:
+                    beauty = text.split('Красота:')[-1].strip()
+                if 'Монеты:' in text:
+                    coins = text.split('Монеты:')[-1].strip()
+                if 'Сердечки:' in text:
+                    hearts = text.split('Сердечки:')[-1].strip()
+                if 'VIP-аккаунт:' in text:
+                    vip_status = text.split('VIP-аккаунт:')[-1].strip()
+
+            stats = (
+                f"Никнейм и уровень: {pet_name}, {pet_level} уровень\n"
+                f"Опыт: {experience}\nКрасота: {beauty}\n"
+                f"Монеты: {coins}\nСердечки: {hearts}\n"
+                f"VIP-аккаунт/Премиум-аккаунт: {vip_status}"
+            )
+
+            return stats
+
+    except Exception as e:
+        return f"Произошла ошибка при запросе статистики: {e}"
+
 
 # Команда для получения информации о владельце сессии
 async def get_user(update: Update, context: CallbackContext):
