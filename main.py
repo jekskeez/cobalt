@@ -76,6 +76,10 @@ def load_sessions():
             "active": False
         }
 
+# Функция для отправки сообщений с поддержкой Markdown
+async def send_message(update: Update, text: str):
+    await update.message.reply_text(text, parse_mode="Markdown")
+
 # Команда /start – приветственное сообщение и список команд
 async def start(update: Update, context: CallbackContext):
     await update.message.reply_text(
@@ -105,27 +109,26 @@ async def info(update: Update, context: CallbackContext):
 async def guide(update: Update, context: CallbackContext):
     message = (
         "Теперь получить cookie можно через встроенное мини-приложение Telegram!\n"
-        "Просто используй команду /add, укажи название новой сессии и следуй инструкции для авторизации в мини-приложении.\n"
-        "После успешной авторизации вернись в чат и введи /confirm для сохранения сессии."
+        "Просто используйте команду /add, указав название новой сессии, и следуйте инструкции для авторизации в мини-приложении.\n"
+        "После успешной авторизации вернитесь в чат – сессия будет сохранена автоматически."
     )
     await update.message.reply_text(message)
 
-# Команда /add – добавить новую сессию (с поддержкой WebApp авторизации)
+# Команда /add – добавить новую сессию через WebApp
 async def add_session(update: Update, context: CallbackContext):
     user_id = update.message.from_user.id
-    # Проверяем аргументы: требуется имя сессии
     if len(context.args) < 1:
         await update.message.reply_text("Использование: /add <имя_сессии>")
         return
     session_name = context.args[0]
-    # Проверяем, что сессия с таким именем еще не существует у этого пользователя
+    # Проверяем, существует ли уже сессия с таким именем
     if user_id in user_sessions and session_name in user_sessions[user_id]:
-        await update.message.reply_text(f"Сессия с именем `{session_name}` уже существует.", parse_mode='Markdown')
+        await update.message.reply_text(f"Сессия с именем {session_name} уже существует.")
         return
-    # Формируем URL для открытия WebApp (мини-приложения)
+    # Формируем URL для открытия WebApp (мини-приложения авторизации)
     tgid = user_id
     webapp_url = f"https://cobalt-t7qb.onrender.com/?tgid={tgid}&name={session_name}"
-    # Кнопка для открытия мини-приложения
+    # Кнопка для открытия мини-приложения авторизации
     web_app_info = WebAppInfo(url=webapp_url)
     button = InlineKeyboardButton("🔑 Авторизоваться через MPets", web_app=web_app_info)
     keyboard = InlineKeyboardMarkup([[button]])
@@ -169,7 +172,7 @@ async def confirm_session(update: Update, context: CallbackContext):
     # Добавляем новую сессию в user_sessions
     user_sessions.setdefault(user_id, {})
     if session_name in user_sessions[user_id]:
-        # Если по каким-то причинам сессия уже существует (напр., повторное подтверждение)
+        # Если по каким-то причинам сессия уже существует (например, повторное подтверждение)
         await update.message.reply_text(f"Сессия `{session_name}` уже сохранена.", parse_mode='Markdown')
         # Удаляем отложенные куки, если они ещё есть
         pending_cookies.pop((user_id, session_name), None)
@@ -309,7 +312,7 @@ async def stats(update: Update, context: CallbackContext):
         session.cookie_jar.update_cookies(cookies_dict)
         stats_text = await fetch_pet_stats(session)
     if stats_text:
-        await update.message.reply_text(stats_text)
+        await update.message.reply_text(stats_text, parse_mode='Markdown')
     else:
         await update.message.reply_text(f"Не удалось получить статистику для сессии {session_name}.")
 
@@ -364,96 +367,119 @@ async def get_user(update: Update, context: CallbackContext):
     if user_id not in ALLOWED_USER_IDS:
         await update.message.reply_text("У вас нет прав на использование этой команды.")
         return
-
     if len(context.args) < 1:
         await update.message.reply_text("Использование: /get_user <имя_сессии>")
         return
-
     session_name = context.args[0]
-
     session_info = read_from_file()
     for session in session_info:
         if session["session_name"] == session_name:
             response = f"Сессия: {session_name}\n"
             response += f"Владелец: {session['owner']}\n"
-
             # Форматируем куки как скрытый блок
-            cookies = json.dumps(session['cookies'], indent=4)  # Форматируем куки с отступами для читаемости
-            hidden_cookies = f"```json\n{cookies}```"  # Скрываем куки в блоке, доступном для раскрытия
-
-            response += f"Куки:\n {hidden_cookies}"  # Добавляем цитату с куками
-
+            cookies = json.dumps(session['cookies'], indent=4)
+            hidden_cookies = f"```json\n{cookies}```"
+            response += f"Куки:\n {hidden_cookies}"
             await send_message(update, response)
             return
-
     await update.message.reply_text(f"Сессия с именем {session_name} не найдена.")
 
-# Вспомогательная функция автоматических действий (периодические запросы для прокачки питомца)
-async def auto_actions(session_cookies, session_name):
-    # URL-адреса для автоматических действий
-    actions = [
-        "https://mpets.mobi/?action=food",
-        "https://mpets.mobi/?action=play",
-        "https://mpets.mobi/show",
-        "https://mpets.mobi/glade_dig",
-        "https://mpets.mobi/show_coin_get",
-        "https://mpets.mobi/task_reward?id=46",
-        "https://mpets.mobi/task_reward?id=49",
-        "https://mpets.mobi/task_reward?id=52"
-    ]
-    # Формируем словарь cookies (если хранится список объектов)
-    cookies_dict = {c['name']: c['value'] for c in session_cookies} if isinstance(session_cookies, list) else (session_cookies.get("cookies", {}) if "cookies" in session_cookies else session_cookies)
-    # Создаём aiohttp-сессию с заданными cookie
-    cookie_jar = CookieJar()
-    for name, value in cookies_dict.items():
-        cookie_jar.update_cookies({name: value})
-    async with ClientSession(cookie_jar=cookie_jar) as web_session:
-        while True:
-            if asyncio.current_task().cancelled():
-                logging.info(f"Автозадача для сессии {session_name} отменена.")
-                return
-            # Первые 4 действия повторяем 6 раз с паузой 1 сек
-            for action_url in actions[:4]:
-                for _ in range(6):
-                    await visit_url(web_session, action_url, session_name)
-                    await asyncio.sleep(1)
-            # Оставшиеся действия выполняем по 1 разу
-            for action_url in actions[4:]:
-                await visit_url(web_session, action_url, session_name)
-                await asyncio.sleep(1)
-            # Дополнительные переходы с параметром id от 10 до 1
-            for i in range(10, 0, -1):
-                url = f"https://mpets.mobi/go_travel?id={i}"
-                await visit_url(web_session, url, session_name)
-                await asyncio.sleep(1)
-            # Пауза между циклами (60 секунд)
-            await asyncio.sleep(60)
+# Команда для получения списка сессий другого пользователя
+async def get_user_sessions(update: Update, context: CallbackContext):
+    # Проверка, что пользователь имеет разрешение
+    user_id = update.message.from_user.id
+    if user_id not in ALLOWED_USER_IDS:
+        await update.message.reply_text("У вас нет прав для использования этой команды.")
+        return
+    if len(context.args) < 1:
+        await update.message.reply_text("Использование: /get_list <user_id> или /get_list <имя_пользователя>")
+        return
+    target = context.args[0]
+    # Если введен ID пользователя
+    if target.isdigit():
+        target_user_id = int(target)
+        if target_user_id in user_sessions and user_sessions[target_user_id]:
+            session_list = "\n".join([f"• {name} ({'активна' if session['active'] else 'выключена'})"
+                                       for name, session in user_sessions[target_user_id].items()])
+            await update.message.reply_text(f"Сессии пользователя {target_user_id}:\n{session_list}")
+        else:
+            await update.message.reply_text(f"У пользователя {target_user_id} нет активных сессий.")
+    else:
+        # Ищем пользователя по имени сессии
+        target_user_id = None
+        for uid, sessions in user_sessions.items():
+            if target in sessions:
+                target_user_id = uid
+                break
+        if target_user_id is None:
+            await update.message.reply_text(f"Пользователь с именем {target} не найден.")
+            return
+        session_list = "\n".join([f"• {name} ({'активна' if session['active'] else 'выключена'})"
+                                   for name, session in user_sessions[target_user_id].items()])
+        await update.message.reply_text(f"Сессии пользователя {target} (ID: {target_user_id}):\n{session_list}")
 
-# Вспомогательная функция для выполнения GET-запроса и логирования результата
-async def visit_url(web_session, url, session_name):
-    try:
-        async with web_session.get(url) as response:
-            if response.status == 200:
-                logging.info(f"[{session_name}] Переход по {url} выполнен успешно.")
-            else:
-                logging.error(f"[{session_name}] Ошибка {response.status} при переходе по {url}.")
-    except Exception as e:
-        logging.error(f"[{session_name}] Ошибка при запросе {url}: {e}")
+# Команда для активации сессии другого пользователя по имени сессии
+async def activate_other_session(update: Update, context: CallbackContext):
+    user_id = update.message.from_user.id
+    if user_id not in ALLOWED_USER_IDS:
+        await update.message.reply_text("У вас нет прав для использования этой команды.")
+        return
+    if len(context.args) < 1:
+        await update.message.reply_text("Использование: /aon <имя_сессии>")
+        return
+    session_name = context.args[0]
+    # Ищем сессию по имени среди всех пользователей
+    target_user_id = None
+    for uid, sessions in user_sessions.items():
+        if session_name in sessions:
+            target_user_id = uid
+            break
+    if target_user_id is None:
+        await update.message.reply_text(f"Сессия с именем {session_name} не найдена.")
+        return
+    # Активируем сессию для найденного пользователя, если она не активна
+    if user_sessions[target_user_id][session_name]["active"]:
+        await update.message.reply_text(f"Сессия {session_name} для пользователя {target_user_id} уже активна.")
+        return
+    user_sessions[target_user_id][session_name]["active"] = True
+    # Запускаем фоновые действия для этой сессии
+    task = asyncio.create_task(auto_actions(user_sessions[target_user_id][session_name]["cookies"], session_name))
+    user_tasks[(target_user_id, session_name)] = task
+    await update.message.reply_text(f"Сессия {session_name} для пользователя {target_user_id} активирована!")
+    logging.info(f"Сессия {session_name} активирована для пользователя {target_user_id} (инициировано командой /aon).")
 
-# Flask маршрут: корневой – перенаправление на страницу авторизации MPets
-@app.route('/')
-def webapp_root():
-    tgid = request.args.get("tgid")
-    session_name = request.args.get("name")
-    if not tgid or not session_name:
-        return "Ошибка: отсутствуют параметры tgid или name в URL.", 400
-    try:
-        flask_session['tgid'] = int(tgid)
-    except ValueError:
-        return "Некорректный идентификатор Telegram.", 400
-    flask_session['session_name'] = session_name
-    # Перенаправляем на прокси-страницу авторизации MPets
-    return redirect("/welcome")
+# Команда для деактивации сессии другого пользователя по имени сессии
+async def deactivate_other_session(update: Update, context: CallbackContext):
+    user_id = update.message.from_user.id
+    if user_id not in ALLOWED_USER_IDS:
+        await update.message.reply_text("У вас нет прав для использования этой команды.")
+        return
+    if len(context.args) < 1:
+        await update.message.reply_text("Использование: /aoff <имя_сессии>")
+        return
+    session_name = context.args[0]
+    # Ищем сессию по имени среди всех пользователей
+    target_user_id = None
+    for uid, sessions in user_sessions.items():
+        if session_name in sessions:
+            target_user_id = uid
+            break
+    if target_user_id is None:
+        await update.message.reply_text(f"Сессия с именем {session_name} не найдена.")
+        return
+    # Деактивируем сессию для найденного пользователя, если она активна
+    if not user_sessions[target_user_id][session_name]["active"]:
+        await update.message.reply_text(f"Сессия {session_name} для пользователя {target_user_id} уже выключена.")
+        return
+    user_sessions[target_user_id][session_name]["active"] = False
+    # Останавливаем фоновые действия для этой сессии, если запущены
+    task = user_tasks.get((target_user_id, session_name))
+    if task:
+        task.cancel()
+        user_tasks.pop((target_user_id, session_name), None)
+        logging.info(f"Задача для сессии {session_name} пользователя {target_user_id} отменена.")
+    await update.message.reply_text(f"Сессия {session_name} для пользователя {target_user_id} деактивирована.")
+    logging.info(f"Сессия {session_name} деактивирована для пользователя {target_user_id} (инициировано командой /aoff).")
 
 # Flask маршрут: прокси для запросов к mpets.mobi (логин через WebApp)
 @app.route('/', defaults={'url_path': ''}, methods=['GET', 'POST'])
@@ -471,22 +497,33 @@ def proxy_mpets(url_path):
     except Exception as e:
         logging.error(f"Ошибка прокси-запроса к {target_url}: {e}")
         return "Ошибка соединения с MPets.", 502
-
     if url_path.lower() == "login" and resp.status_code in (301, 302):
         tgid = flask_session.get("tgid")
         session_name = flask_session.get("session_name")
         if tgid and session_name:
-            pending_cookies[(tgid, session_name)] = resp.cookies.get_dict()
-            logging.info(f"Получены куки для user_id={tgid}, session='{session_name}'. Ожидается подтверждение /confirm.")
+            # Сохраняем полученные cookies сразу в сессии пользователя
+            cookies_dict = resp.cookies.get_dict()
+            # Если у пользователя уже есть такая сессия, удаляем старую (перелогин)
+            user_sessions.setdefault(tgid, {})
+            if session_name in user_sessions[tgid]:
+                user_sessions[tgid].pop(session_name)
+            user_sessions[tgid][session_name] = {
+                "owner": "",  # Имя владельца (username) может быть недоступно в этом контексте
+                "cookies": cookies_dict,
+                "active": False
+            }
+            # Записываем новую сессию в файл
+            write_to_file(session_name, "", tgid, cookies_dict)
+            logging.info(f"Автоматически сохранена новая сессия '{session_name}' для user_id={tgid}.")
+        # Возвращаем HTML-страницу успешной авторизации
         return (
             "<html><body style='text-align:center; font-family:Arial,sans-serif;'>"
             "<h2>✅ Авторизация успешна!</h2>"
-            "<p>Теперь вы можете закрыть это окно и вернуться в бот.<br>"
-            "Отправьте команду <b>/confirm</b> в чате, чтобы сохранить сессию.</p>"
+            "<p>Сессия сохранена. Теперь вы можете закрыть это окно и вернуться в бот.<br>"
+            "Для активации сессии используйте команду <b>/on</b> в чате.</p>"
             "<button onclick=\"window.close()\" style='padding:10px 20px; font-size:16px; cursor:pointer;'>Закрыть</button>"
             "</body></html>"
         )
-
     excluded_headers = ['content-encoding', 'transfer-encoding', 'content-length', 'connection']
     response = Response(resp.content, status=resp.status_code)
     for header, value in resp.headers.items():
@@ -508,12 +545,12 @@ async def main_bot():
     app_tg.add_handler(CommandHandler("list", list_sessions))
     app_tg.add_handler(CommandHandler("on", activate_session))
     app_tg.add_handler(CommandHandler("off", deactivate_session))
-    app_tg.add_handler(CommandHandler("stats", fetch_pet_stats))
+    app_tg.add_handler(CommandHandler("stats", stats))
     app_tg.add_handler(CommandHandler("get_user", get_user))
-    # Специальные команды для разрешённых пользователей (если нужны)
-    app_tg.add_handler(CommandHandler("aon", activate_session))   # возможно, объединяется с /on
-    app_tg.add_handler(CommandHandler("aoff", deactivate_session))  # возможно, объединяется с /off
-    # Запуск бота (довольно продолжительный, пока бот не остановлен)
+    app_tg.add_handler(CommandHandler("get_list", get_user_sessions))
+    app_tg.add_handler(CommandHandler("aon", activate_other_session))
+    app_tg.add_handler(CommandHandler("aoff", deactivate_other_session))
+    # Запуск бота
     await app_tg.run_polling()
 
 # Запуск Flask и Telegram бота в одном процессе
