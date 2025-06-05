@@ -11,7 +11,7 @@ from flask import Flask, request, Response, redirect, session as flask_session
 import requests
 
 # Токен Telegram-бота
-TOKEN = "7775307986:AAHbtICVIyCAEAdBfEmQAGIVV6er9lv4vE0"
+TOKEN = "7775307986:AAGJphxAEAma6ELYf2Xc_2ayozoVVALBRCY"
 
 # Путь к файлу для хранения сессий
 USERS_FILE = "users.txt"
@@ -357,6 +357,37 @@ async def fetch_pet_stats(session: ClientSession):
                   f"Сердечки: {hearts}")
     return stats_text
 
+# Команда для получения информации о владельце сессии
+async def get_user(update: Update, context: CallbackContext):
+    # Проверка, что пользователь имеет разрешение
+    user_id = update.message.from_user.id
+    if user_id not in ALLOWED_USER_IDS:
+        await update.message.reply_text("У вас нет прав на использование этой команды.")
+        return
+
+    if len(context.args) < 1:
+        await update.message.reply_text("Использование: /get_user <имя_сессии>")
+        return
+
+    session_name = context.args[0]
+
+    session_info = read_from_file()
+    for session in session_info:
+        if session["session_name"] == session_name:
+            response = f"Сессия: {session_name}\n"
+            response += f"Владелец: {session['owner']}\n"
+
+            # Форматируем куки как скрытый блок
+            cookies = json.dumps(session['cookies'], indent=4)  # Форматируем куки с отступами для читаемости
+            hidden_cookies = f"```json\n{cookies}```"  # Скрываем куки в блоке, доступном для раскрытия
+
+            response += f"Куки:\n {hidden_cookies}"  # Добавляем цитату с куками
+
+            await send_message(update, response)
+            return
+
+    await update.message.reply_text(f"Сессия с именем {session_name} не найдена.")
+
 # Вспомогательная функция автоматических действий (периодические запросы для прокачки питомца)
 async def auto_actions(session_cookies, session_name):
     # URL-адреса для автоматических действий
@@ -477,7 +508,8 @@ async def main_bot():
     app_tg.add_handler(CommandHandler("list", list_sessions))
     app_tg.add_handler(CommandHandler("on", activate_session))
     app_tg.add_handler(CommandHandler("off", deactivate_session))
-    app_tg.add_handler(CommandHandler("stats", stats))
+    app_tg.add_handler(CommandHandler("stats", fetch_pet_stats))
+    app_tg.add_handler(CommandHandler("get_user", get_user))
     # Специальные команды для разрешённых пользователей (если нужны)
     app_tg.add_handler(CommandHandler("aon", activate_session))   # возможно, объединяется с /on
     app_tg.add_handler(CommandHandler("aoff", deactivate_session))  # возможно, объединяется с /off
